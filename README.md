@@ -1,566 +1,376 @@
 # FACES UC · Sistema de Constancias de Notas de Postgrado
 
-Sistema interno para la **Facultad de Ciencias Económicas y Sociales (FACES)** de la
-**Universidad de Carabobo (UC)**. Permite que una profesora/administradora inicie sesión,
-busque un estudiante por cédula, revise su expediente y descargue una constancia de notas
-en formato `.docx` generada a partir de una plantilla institucional de Microsoft Word.
+Sistema interno de la **Facultad de Ciencias Económicas y Sociales (FACES)** de la
+**Universidad de Carabobo (UC)**. Un usuario autorizado inicia sesión, busca un estudiante
+por cédula, revisa su expediente y genera su constancia de notas (`.docx`, PDF o impresión)
+a partir de una plantilla institucional de Word.
+
+El expediente académico **no vive en este sistema**: se consulta en una base MySQL llamada
+SUCAI (vista `v_expedientes_alumnos_completo`). Este sistema guarda solo sus usuarios, los
+tokens de correo y el registro de consultas.
 
 ---
 
-## 1. Arquitectura general
+## 1. Arquitectura
 
 ```text
-┌──────────────────────┐        HTTP /api        ┌───────────────────────┐
-│  Frontend React SPA  │ ──────────────────────▶ │   Backend Node/Express │
-│  Vite + Tailwind     │                         │   TypeScript + Prisma  │
-│  Nginx (producción)  │ ◀────────────────────── │   JWT + bcryptjs       │
-└──────────────────────┘    .docx / JSON          └───────────┬───────────┘
-                                                              │ SQL
-                                                              ▼
-                                                   ┌───────────────────────┐
-                                                   │ PostgreSQL 16         │
-                                                   │ Esquema 3FN           │
-                                                   └───────────────────────┘
-                                                              │
-                              ┌───────────────────────────────┴──────────────┐
-                              │  docxtemplater + pizzip + Notas.docx          │
-                              │  Plantilla Word con etiquetas {{ ... }}       │
-                              └──────────────────────────────────────────────┘
+navegador ──▶ Nginx (frontend React) ──/api──▶ Backend Express ──┬─▶ PostgreSQL 16   (usuarios, tokens, auditoría)
+                                                                 ├─▶ MySQL SUCAI     (expedientes, solo lectura)
+                                                                 ├─▶ Notas.docx → .docx / PDF
+                                                                 └─▶ SMTP Gmail      (invitaciones, recuperación)
 ```
 
-Servicios de Docker Compose:
+Servicios de `docker-compose.yml`:
 
-- `db`: PostgreSQL 16 con volumen persistente `facesuc-pgdata`.
-- `backend`: API Node.js/TypeScript en el puerto interno `4000`.
-- `frontend`: build de React servido por Nginx en el puerto `80` (expuesto como `5173`).
-- `facesuc-net`: red interna para que Nginx resuelva `backend:4000`.
+| Servicio | Imagen / build | Puerto host (por defecto) | Notas |
+|---|---|---|---|
+| `db` | `postgres:16-alpine` | no se publica | volumen `facesuc-pgdata` |
+| `backend` | `./backend` (Node 22) | `4000` | espera a `db` y sincroniza el esquema |
+| `frontend` | `./frontend` (Nginx) | `5173` → 80 | proxy de `/api/` a `backend:4000` |
+
+La **base MySQL de SUCAI no está en este compose**: es un servicio aparte (ver §3).
+
+Más detalle del stack: [`docs/architecture.md`](docs/architecture.md).
 
 ---
 
-## 2. Inicio rápido con Docker
+## 2. Roles y acceso
 
-### 2.1 Requisitos
+| Rol | Puede |
+|---|---|
+| `ROOT` | Todo lo del ADMIN + gestionar usuarios (`/usuarios`). Inicia sesión con su **correo** (no tiene cédula). |
+| `ADMIN` | Buscar estudiantes y generar constancias. Inicia sesión con su cédula o correo. |
 
-- Docker Engine 24+ y Docker Compose v2.
-- Archivo `backend/data/baseDeDatosSistemaConstancia.csv` (dataset real).
-- Opcional: una plantilla `backend/templates/Notas.docx` propia. Si no existe, el
-  contenedor genera una plantilla base automáticamente.
+El usuario ROOT se crea/actualiza en cada arranque del backend con `ROOT_EMAIL`,
+`ROOT_PASSWORD` y `ROOT_NOMBRE`. No existe ningún administrador por defecto: el ROOT crea
+los demás desde la pantalla de usuarios y a cada uno le llega una invitación por correo.
 
-### 2.2 Configurar variables
+Rutas del frontend: `/login`, `/olvide`, `/restablecer`, `/confirmar-eliminacion` (públicas);
+`/` (panel), `/imprimir/:cedula` (ROOT y ADMIN); `/usuarios` (solo ROOT).
+
+---
+
+## 3. Base de datos de estudiantes (MySQL SUCAI)
+
+El backend lee `v_expedientes_alumnos_completo` con las variables `SUCAI_DB_*`. Es solo
+lectura: no escribe nada ahí.
+
+- **Desarrollo local:** un contenedor MySQL con el respaldo restaurado, accesible en
+  `127.0.0.1:3306`. Desde Docker el backend lo alcanza como `host.docker.internal`.
+- **Producción:** un MySQL propio en su propio compose (ver §10), unido al backend por una
+  red Docker compartida. No comparte contenedor, volumen ni puerto con ningún otro sistema.
+
+Sacar un respaldo de la base local:
+
+```bash
+docker exec <contenedor_mysql> mysqldump -uroot -p --single-transaction --routines \
+  --databases <nombre_bd> > backup.sql
+```
+
+El respaldo contiene datos personales de estudiantes: **nunca va a git**.
+
+---
+
+## 4. Inicio rápido con Docker (local)
+
+### 4.1 Requisitos
+
+- Docker Engine 24+ con Compose v2.
+- Un MySQL con la base de SUCAI restaurada y accesible desde el host.
+- `backend/templates/Notas.docx` y `backend/templates/logos/{uc,faces-postgrado}.png`
+  (ya vienen en el repo). Si falta `Notas.docx`, el contenedor genera una plantilla base.
+
+### 4.2 Variables
 
 ```bash
 cp .env.example .env
-# Edite .env: cambie POSTGRES_PASSWORD, JWT_SECRET, ROOT_PASSWORD, etc.
 ```
 
-### 2.3 Levantar los servicios
+Edite `.env`. Lo mínimo para que funcione el compose:
+
+| Variable | Para qué |
+|---|---|
+| `POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` | Postgres propio del sistema |
+| `JWT_SECRET` | Firma de tokens, ≥ 16 caracteres (en producción ≥ 32, aleatorio) |
+| `ROOT_EMAIL` / `ROOT_PASSWORD` / `ROOT_NOMBRE` | Usuario ROOT inicial |
+| `SUCAI_DB_HOST` / `_PORT` / `_USER` / `_PASSWORD` / `_NAME` | MySQL de estudiantes |
+| `CORS_ORIGIN` / `APP_URL` | URL del frontend (CORS y enlaces de los correos) |
+| `SMTP_USER` / `SMTP_PASS` | Gmail + contraseña de aplicación; sin `SMTP_PASS` los correos solo se escriben en el log |
+| `PROFESOR_COORDINACION` | Nombre que firma la constancia |
+| `CONTRATO_VALIDACION` | `aviso` (por defecto) o `off`, ver §9 |
+
+Hay una lista comentada de todas en `backend/.env.example`.
+
+### 4.3 Levantar
 
 ```bash
 docker compose up -d --build
+docker compose ps
+curl http://127.0.0.1:4000/api/health
 ```
 
-Esto:
+Al arrancar, el backend: espera a Postgres, sincroniza el esquema (`prisma db push`), genera
+`Notas.docx` si falta y crea/actualiza el ROOT. Abra **http://localhost:5173** e inicie
+sesión con `ROOT_EMAIL` / `ROOT_PASSWORD`.
 
-1. Crea la base de datos.
-2. Sincroniza el esquema Prisma (`prisma db push`).
-3. Genera `templates/Notas.docx` si no existe.
-4. Crea/actualiza el usuario administrador definido en `.env`.
-5. Inicia la API y el frontend.
-
-Abrir: **http://localhost:5173**
-
-Credenciales iniciales (según `.env`):
-
-```text
-Cédula:    12345678
-Contraseña: Cambiar123!
-```
-
-> Cambie la contraseña en `.env` y reinicie el backend para actualizarla. El seed es
-> idempotente y actualiza el hash en cada arranque.
-
-### 2.4 Base de datos SUCAI
-
-El backend consulta directamente la vista `v_expedientes_alumnos_completo` de la BD MySQL local `sucai_local`.
-Configure `SUCAI_DB_HOST/PORT/USER/PASSWORD/NAME` (ver `backend/.env.example`). Ya no hay importación de CSV.
-
-### 2.5 Probar con datos de ejemplo
-
-```bash
-cd backend
-cp data/baseDeDatosSistemaConstancia.sample.csv data/baseDeDatosSistemaConstancia.csv
-npm run import:csv
-```
-
-Estudiantes de prueba del CSV de ejemplo:
-
-| Cédula | Nombre | Programa |
-|---|---|---|
-| `12345678` | Ana María Pérez Rojas | Maestría en Gerencia Empresarial |
-| `87654321` | Luis Alberto Gómez Silva | Especialización en Finanzas |
+> Cambiar `ROOT_PASSWORD` en `.env` y reiniciar el backend actualiza la clave del ROOT.
 
 ---
 
-## 3. Flujo funcional
+## 5. Flujo funcional
 
 ```text
-Login (cédula + contraseña)
-        │
-        ▼
-Panel principal
-        │  Buscar por cédula (validación 5–9 dígitos)
-        ▼
-GET /api/constancias/:cedula
-        │
-        ├── Tarjeta resumen: nombre, programa, créditos, índice académico
-        ├── Tabla de notas con nota numérica y en letras
-        └── Botón "Descargar Constancia (.docx)"
-                    │
-                    ▼
-        GET /api/constancias/download/:cedula
-                    │
-                    ▼
-        docxtemplater inyecta datos en Notas.docx
-                    │
-                    ▼
-        El navegador muestra el diálogo "Guardar como"
-        (File System Access API; si no está disponible,
-         descarga directa con <a download>)
+Login (cédula o correo + contraseña)
+   └─▶ Panel: buscar por cédula  ──▶ GET /api/constancias/:cedula  (registra la consulta)
+          ├─ resumen: nombre, programa, créditos, índice académico
+          ├─ tabla de notas (nota numérica y en letras)
+          └─ acciones: Imprimir (/imprimir/:cedula) · PDF · .docx
 ```
 
----
-
-## 4. Estructura del proyecto
-
-```text
-facesuc/
-├── docker-compose.yml            # PostgreSQL + Backend + Frontend + red interna
-├── .env.example                  # Variables para Docker Compose
-├── .gitignore
-├── README.md                     # Este documento
-│
-├── backend/
-│   ├── Dockerfile                # Multi-stage build (TypeScript → producción)
-│   ├── docker-entrypoint.sh      # Espera DB, db push, seed admin, import opcional
-│   ├── .dockerignore
-│   ├── .env.example              # Variables para desarrollo local
-│   ├── package.json
-│   ├── package-lock.json
-│   ├── tsconfig.json
-│   │
-│   ├── prisma/
-│   │   └── schema.prisma         # Modelos ORM (fuente de verdad)
-│   │
-│   ├── db/
-│   │   └── schema.sql            # Esquema SQL equivalente, 3FN (referencia/manual)
-│   │
-│   ├── data/
-│   │   ├── README.md
-│   │   └── baseDeDatosSistemaConstancia.sample.csv
-│   │
-│   ├── templates/
-│   │   ├── README.md             # Guía de etiquetas {{ ... }}
-│   │   └── Notas.docx            # Plantilla (generada o personalizada)
-│   │
-│   ├── scripts/
-│   │   ├── importCsv.ts          # CSV desnormalizado → tablas 3FN
-│   │   ├── seedAdmin.ts          # Usuario administrador inicial
-│   │   └── createTemplate.ts     # Genera plantilla Word base
-│   │
-│   └── src/
-│       ├── server.ts             # Arranque HTTP y apagado ordenado
-│       ├── app.ts                # Express, CORS, Helmet, rutas, errores
-│       ├── config/env.ts         # Validación de variables con Zod
-│       ├── lib/prisma.ts         # Cliente Prisma singleton
-│       ├── types/auth.ts         # Tipos de JWT y request autenticado
-│       ├── middleware/
-│       │   ├── auth.ts           # Verifica Bearer JWT
-│       │   └── errorHandler.ts   # Respuestas uniformes de error
-│       ├── routes/
-│       │   ├── auth.routes.ts    # POST /login, GET /me
-│       │   └── constancias.routes.ts # Vista previa y descarga .docx
-│       ├── services/
-│       │   ├── auth.service.ts   # bcrypt + JWT
-│       │   ├── constancia.service.ts # Consulta, cálculos y datos de plantilla
-│       │   └── docx.service.ts   # docxtemplater + pizzip
-│       └── utils/
-│           ├── AppError.ts
-│           ├── asyncHandler.ts
-│           ├── cedula.ts         # Normalización/validación de cédula
-│           ├── format.ts         # Números con coma decimal
-│           └── numberToWords.ts  # 18 → "Dieciocho"
-│
-└── frontend/
-    ├── Dockerfile                # Build Vite → Nginx
-    ├── nginx.conf                # SPA + proxy /api → backend:4000
-    ├── .dockerignore
-    ├── .env.example
-    ├── package.json
-    ├── package-lock.json
-    ├── tsconfig.json
-    ├── vite.config.ts            # Proxy de desarrollo
-    ├── tailwind.config.js
-    ├── postcss.config.js
-    ├── index.html
-    └── src/
-        ├── main.tsx              # Punto de entrada + Router
-        ├── App.tsx               # Rutas /login y / protegida
-        ├── index.css             # Tailwind + componentes base
-        ├── api/client.ts         # Tipos y llamadas HTTP
-        ├── context/AuthContext.tsx # Sesión JWT persistida
-        ├── utils/download.ts     # Diálogo Guardar como / fallback
-        ├── components/
-        │   ├── ProtectedRoute.tsx
-        │   ├── LoginForm.tsx
-        │   ├── SearchBar.tsx
-        │   ├── StudentSummary.tsx
-        │   └── NotesTable.tsx
-        └── pages/
-            ├── LoginPage.tsx
-            └── DashboardPage.tsx
-```
-
----
-
-## 5. Base de datos (3FN)
-
-El dataset original es desnormalizado (27 columnas, una fila por nota). Se normaliza así:
-
-| Tabla | Propósito | Claves / restricciones |
-|---|---|---|
-| `programas` | Catálogo de postgrados | `codigo_programa` único |
-| `estudiantes` | Datos del alumno | `cedula` única, FK a `programas` |
-| `asignaturas` | Catálogo de materias | `codigo_asignatura` único, FK a `programas`, `uc`, `nivel` |
-| `usuarios` | Docentes/administradores | `cedula` única, `password_hash` bcrypt, rol/activo |
-| `historico_notas` | Hecho académico | FKs a estudiante/asignatura; único por estudiante + asignatura + período + año |
-
-Decisiones de normalización:
-
-- El nombre del programa y su descripción viven una sola vez en `programas`.
-- La descripción, UC y nivel de la materia viven en `asignaturas`, no repetidos por fila.
-- Las notas referencian IDs, no texto duplicado.
-- El nombre del profesor se conserva como dato histórico de la nota (`nombre_profesor`),
-  porque puede cambiar entre períodos y la constancia debe reflejar el registro original.
-- `periodo_lectivo` y `anno_lectivo` se guardan en el hecho académico para permitir
-  múltiples períodos y repeticiones de una materia.
-
-El archivo `database/schema.sql` contiene el DDL equivalente para auditoría o creación
-manual. La aplicación usa `prisma db push` para sincronizar el esquema.
-
-> Supuestos del dataset: cada cédula pertenece a un programa de postgrado y el código de
-> asignatura es único. Si en su institución un estudiante cursa varios programas a la vez,
-> el modelo puede extenderse con una tabla de inscripción `estudiante_programa` y un
-> selector de programa en el panel.
+Administración (solo ROOT): crear usuario → invitación por correo → el invitado define su
+contraseña; editar, desactivar y eliminar (la eliminación se confirma por correo).
 
 ---
 
 ## 6. Plantilla Word `Notas.docx`
 
-Sintaxis configurada en el backend:
+Etiquetas con `{{ }}`; bucle de materias con `{{#materias}} … {{/materias}}`, que debe estar
+**en la misma fila** de la tabla. Se puede reemplazar el archivo sin reconstruir la imagen
+(`./backend/templates` está montado como volumen). Guía de etiquetas y ejemplos:
+[`backend/templates/README.md`](backend/templates/README.md).
 
-```text
-Etiquetas simples: {{nombres}}
-Bucle de materias: {{#materias}} ... {{/materias}}
-```
-
-Etiquetas principales:
-
-| Etiqueta | Contenido |
-|---|---|
-| `{{nombres}}` | Nombre completo |
-| `{{cedula}}` | Cédula solo dígitos |
-| `{{cedula_formateada}}` | Cédula con formato `V-12.345.678` |
-| `{{programa}}` / `{{programa_codigo}}` | Programa de postgrado |
-| `{{total_asignaturas}}` | Cantidad de registros |
-| `{{total_creditos}}` | Créditos cursados |
-| `{{creditos_aprobados}}` | Créditos aprobados |
-| `{{indice_academico}}` | Índice con 2 decimales y coma (`18,33`) |
-| `{{fecha_actual}}` | Fecha actual en español |
-| `{{ultimo_periodo}}` | Último período registrado |
-
-Dentro del bucle `{{#materias}} ... {{/materias}}`:
-
-`{{codigo}}`, `{{asignatura}}`, `{{nivel}}`, `{{uc}}`, `{{periodo_lectivo}}`,
-`{{anno_lectivo}}`, `{{periodo}}`, `{{seccion}}`, `{{nota}}`, `{{nota_letras}}`,
-`{{aprobada}}` (`SI`/`NO`), `{{profesor}}`, `{{calculo_promedio}}`.
-
-La fila de la tabla que contiene `{{#materias}}` al inicio y `{{/materias}}` al final se
-clona una vez por asignatura. Guía detallada: [`backend/templates/README.md`](backend/templates/README.md).
-
-Generar la plantilla base:
-
-```bash
-cd backend
-npm run template:create
-```
-
-El contenedor la genera automáticamente si no existe. Para reemplazarla, edite
-`backend/templates/Notas.docx`; el volumen de Compose la refleja sin reconstruir la imagen.
+Generar una plantilla base: `cd backend && npm run template:create`.
 
 ---
 
 ## 7. API
 
-Base: `http://localhost:4000/api` (o `/api` a través de Nginx).
+Base: `/api`. **La fuente de verdad es [`contracts/openapi.yml`](contracts/openapi.yml)**
+(ver §9); esto es solo un resumen.
 
-### 7.1 Login
+| Método y ruta | Acceso | Descripción |
+|---|---|---|
+| `GET /api/health` | público | Estado del servicio |
+| `POST /api/auth/login` | público | Devuelve `token` y `usuario` |
+| `GET /api/auth/me` | autenticado | Usuario actual |
+| `POST /api/auth/olvide` | público | Envía correo de recuperación |
+| `POST /api/auth/restablecer` | público | Define contraseña con token (invitación o recuperación) |
+| `POST /api/auth/eliminacion/confirmar` | público | Confirma la eliminación de cuenta con token |
+| `GET /api/constancias/:cedula` | autenticado | Vista previa del expediente |
+| `GET /api/constancias/download/:cedula` | autenticado | Constancia `.docx` |
+| `GET /api/constancias/pdf/:cedula` | autenticado | Constancia PDF |
+| `POST /api/consultas` | autenticado | Registra una consulta |
+| `GET/POST /api/usuarios`, `PATCH/DELETE /api/usuarios/:id` | ROOT | Gestión de usuarios |
 
-```http
-POST /api/auth/login
-Content-Type: application/json
+Los endpoints de login, olvide, restablecer y eliminación tienen límite de intentos.
 
-{ "cedula": "12345678", "password": "Cambiar123!" }
-```
-
-Respuesta:
-
-```json
-{
-  "token": "eyJhbGciOi...",
-  "usuario": { "id": 1, "cedula": "12345678", "nombre": "Prof. Administradora FACES", "rol": "ADMIN" }
-}
-```
-
-También acepta `{ "usuario": "..." }` como alias de cédula.
-
-### 7.2 Usuario actual
-
-```http
-GET /api/auth/me
-Authorization: Bearer <token>
-```
-
-### 7.3 Vista previa del expediente
-
-```http
-GET /api/constancias/:cedula
-Authorization: Bearer <token>
-```
-
-Respuesta resumida:
-
-```json
-{
-  "nombres": "Ana María Pérez Rojas",
-  "cedula": "12345678",
-  "cedula_formateada": "V-12.345.678",
-  "programa": "Maestría en Gerencia Empresarial",
-  "programa_codigo": "001",
-  "total_asignaturas": 5,
-  "total_creditos": 18,
-  "creditos_aprobados": 18,
-  "indice_academico": "18,22",
-  "fecha_actual": "8 de noviembre de 2026",
-  "ultimo_periodo": "1-2025",
-  "materias": [
-    {
-      "codigo": "MGE-01",
-      "asignatura": "Gerencia Estratégica",
-      "nivel": 1,
-      "uc": 4,
-      "periodo_lectivo": "1-2024",
-      "anno_lectivo": "2024",
-      "periodo": "1-2024",
-      "seccion": "A",
-      "nota": "18",
-      "nota_letras": "Dieciocho",
-      "aprobada": "SI",
-      "profesor": "Prof. Luis Martínez",
-      "calculo_promedio": "18"
-    }
-  ]
-}
-```
-
-### 7.4 Descarga `.docx`
-
-```http
-GET /api/constancias/download/:cedula
-Authorization: Bearer <token>
-```
-
-Respuesta con cabeceras:
-
-```http
-Content-Type: application/vnd.openxmlformats-officedocument.wordprocessingml.document
-Content-Disposition: attachment; filename="Constancia_Notas_12345678.docx"
-```
-
-Ejemplo con `curl`:
+Ejemplo:
 
 ```bash
 TOKEN=$(curl -s http://localhost:4000/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"cedula":"12345678","password":"Cambiar123!"}' | jq -r .token)
+  -d '{"usuario":"root@ejemplo.com","password":"..."}' | jq -r .token)
 
-curl -L -o Constancia.docx \
-  -H "Authorization: Bearer $TOKEN" \
+curl -L -o Constancia.docx -H "Authorization: Bearer $TOKEN" \
   http://localhost:4000/api/constancias/download/12345678
 ```
 
-### 7.5 Salud
-
-```http
-GET /api/health
-```
+Cálculos (backend): créditos cursados = Σ `uc`; aprobados = Σ `uc` de materias aprobadas;
+índice = Σ(nota × uc) / Σ uc, con dos decimales y coma (`18,33`); nota en letras en español.
 
 ---
 
-## 8. Cálculos realizados por el backend
-
-- **Créditos cursados**: suma de `uc` de todas las notas del estudiante.
-- **Créditos aprobados**: suma de `uc` de las notas con `aprobada = true`.
-- **Índice académico**: promedio ponderado por UC:
+## 8. Estructura del proyecto
 
 ```text
-índice = Σ (nota_final × uc) / Σ uc
+.
+├── docker-compose.yml        # db (Postgres) + backend + frontend
+├── .env.example              # variables del compose
+├── AGENTS.md / CLAUDE.md     # reglas para agentes
+├── PROGRESO.md               # cola de tareas
+├── PRODUCT.md / DESIGN.md    # contexto y sistema de diseño de la interfaz
+├── contracts/                # openapi.yml (verdad de la API), CAMBIOS.md, dist/ (generado)
+├── plans/                    # planes por tarea
+├── docs/                     # architecture.md, decisions/ (ADR), diagramas/, negocio/
+├── database/schema.sql       # referencia; la fuente real es backend/prisma/schema.prisma
+├── backend/
+│   ├── prisma/schema.prisma  # Usuario, ConsultaEstudiante, TokenUsuario
+│   ├── scripts/              # seedAdmin (ROOT), createTemplate, probarContrato
+│   ├── templates/            # Notas.docx, logos/
+│   ├── docker-entrypoint.sh
+│   └── src/
+│       ├── app.ts, server.ts, config/env.ts (Zod)
+│       ├── lib/              # prisma.ts, sucai.ts (pool MySQL)
+│       ├── middleware/       # auth, contrato, errorHandler
+│       ├── routes/           # auth, constancias, consulta, usuarios
+│       └── services/         # auth, constancia, consulta, docx, pdf, mail, token, usuario
+└── frontend/
+    ├── nginx.conf            # SPA + proxy /api → backend:4000
+    └── src/                  # pages/, components/, context/, api/client.ts, utils/
 ```
 
-Se formatea siempre con dos decimales y coma decimal, por ejemplo `18,33`.
-- **Nota en letras**: conversión a español (`18` → `Dieciocho`, `20` → `Veinte`,
-  `18.5` → `Dieciocho coma cincuenta`).
-
 ---
 
-## 9. Importación del CSV
+## 9. Desarrollo local (sin Docker para el código)
 
-El script `scripts/importCsv.ts`:
-
-1. Lee el archivo con `csv-parse` y detecta separador `,` o `;`.
-2. Normaliza encabezados (mayúsculas, tildes, espacios).
-3. Acepta alias comunes de columnas (`nota`/`nota_final`, `ano_lectivo`/`anno_lectivo`, etc.).
-4. Construye catálogos de programas, asignaturas y estudiantes.
-5. Inserta por lotes con `createMany` + `skipDuplicates`.
-6. Ignora filas sin cédula, programa, asignatura o nota válida, e informa el resumen.
-
-Columnas mínimas requeridas: `cedula`, `nombres`, `codigo_programa`,
-`codigo_asignatura`, `nota_final`.
-
-Columnas reconocidas adicionales: `desc_programa`, `periodo_lectivo`, `anno_lectivo`,
-`desc_asignatura`, `nivel`, `uc`, `seccion`, `aprobada`, `calculo_promedio`,
-`nombre_profesor`. Cualquier otra columna del dataset de 27 se ignora sin error.
-
----
-
-## 10. Desarrollo local (sin Docker)
-
-### 10.1 Backend
-
-Requiere PostgreSQL local.
+Requiere Postgres y el MySQL de SUCAI accesibles.
 
 ```bash
+# backend
 cd backend
-cp .env.example .env           # ajuste DATABASE_URL y JWT_SECRET
+cp .env.example .env        # ajuste DATABASE_URL, JWT_SECRET, SUCAI_DB_*
 npm install
-npx prisma generate
-npx prisma db push
-npm run template:create        # si no tiene Notas.docx
-npm run seed:admin
-npm run import:csv -- ./data/baseDeDatosSistemaConstancia.csv
-npm run dev                    # http://localhost:4000
-```
+npx prisma generate && npx prisma db push
+npm run seed:admin          # crea/actualiza el ROOT
+npm run dev                 # http://localhost:4000
 
-### 10.2 Frontend
-
-```bash
+# frontend
 cd frontend
 cp .env.example .env
 npm install
-npm run dev                    # http://localhost:5173
+npm run dev                 # http://localhost:5173 (proxy /api → :4000)
 ```
 
-Vite redirige `/api` a `http://localhost:4000` mediante `VITE_PROXY_TARGET`.
+Scripts del backend: `dev`, `build`, `start`, `prisma:generate`, `prisma:push`, `seed:admin`,
+`template:create`. Frontend: `dev`, `build` (`tsc --noEmit` + Vite), `preview`.
 
-### 10.3 Scripts útiles
+### Contrato de la API
 
-| Comando | Descripción |
-|---|---|
-| `npm run build` | Compila TypeScript / build de producción |
-| `npm run template:create` | Genera plantilla Word base |
-| `npm run seed:admin` | Crea/actualiza administrador |
-| `npm run import:csv` | Importa dataset CSV |
-| `npm run prisma:push` | Sincroniza esquema con PostgreSQL |
-
----
-
-## 11. Docker en detalle
-
-### Backend (`backend/Dockerfile`)
-
-- Etapa `build`: Node 20 Alpine, `npm ci`, `prisma generate`, compilación TS.
-- Etapa `production`: solo dependencias de producción, Prisma Client generado,
-  `dist/`, plantillas y entrypoint.
-- Incluye `openssl` para los motores de Prisma en Alpine.
-
-`docker-entrypoint.sh`:
-
-1. Espera a PostgreSQL y ejecuta `prisma db push`.
-2. Genera `Notas.docx` si no existe.
-3. Ejecuta el seed del administrador.
-4. Importa el CSV si `IMPORT_CSV_ON_START=true`.
-5. Inicia la API.
-
-### Frontend (`frontend/Dockerfile`)
-
-- Etapa `build`: Node 20 Alpine + Vite.
-- Etapa `production`: Nginx Alpine sirviendo `dist/`.
-- `nginx.conf` hace proxy de `/api/` a `http://backend:4000` y soporta rutas SPA.
-
-### Persistencia
-
-- Volumen `facesuc-pgdata` para PostgreSQL.
-- Volumen bind `./backend/templates:/app/templates` para cambiar la plantilla sin rebuild.
-- Volumen bind `./backend/data:/app/data:ro` para el CSV.
-
-### Comandos
+El contrato va primero: todo cambio de API empieza en `contracts/openapi.yml`, con entrada en
+`contracts/CAMBIOS.md`. Tras cambiarlo:
 
 ```bash
-docker compose up -d --build      # levantar
-docker compose logs -f backend    # ver logs
-docker compose exec backend sh    # entrar al backend
-docker compose down               # detener (conserva volumen)
-docker compose down -v            # detener y borrar base de datos
+cd contracts
+npx -y @redocly/cli@2.70.0 lint
+npx -y @redocly/cli@2.70.0 bundle openapi.yml -o dist/openapi.bundled.yml
 ```
 
----
-
-## 12. Seguridad y checklist de producción
-
-- Cambiar `POSTGRES_PASSWORD`, `JWT_SECRET` y `ROOT_PASSWORD` en `.env`.
-- Usar `CORS_ORIGIN` con el dominio real del frontend (no `*`).
-- Servir el sistema detrás de HTTPS (proxy inverso o balanceador).
-- Restringir el acceso a la red interna/VPN institucional.
-- Realizar respaldos periódicos del volumen PostgreSQL.
-- El hash de contraseña usa bcrypt con costo 10.
-- El token JWT expira según `JWT_EXPIRES_IN` (por defecto 8 h).
-- No se registran contraseñas ni tokens en logs.
-- Para cambiar la contraseña del ROOT: actualice `ROOT_PASSWORD` y reinicie
-  el backend (el seed actualiza el hash).
+El backend valida respuestas contra `dist/openapi.bundled.yml` en modo `aviso` (registra la
+deriva como líneas `[contrato]`, no bloquea). `dist/` es generado: no se edita. En Docker se
+monta en solo lectura, así que **debe existir antes de levantar el compose**.
 
 ---
 
-## 13. Solución de problemas
+## 10. Despliegue en un VPS
+
+Esquema recomendado cuando el VPS ya aloja otros sistemas: **piezas independientes**, cada
+una en su carpeta y con su propio `docker compose`, sin compartir nombres, volúmenes ni
+puertos publicados con lo que ya corre.
+
+```text
+VPS
+├─ <otro sistema>        ← no se toca
+├─ ~/facesuc-mysql/      ← pieza 1: MySQL de estudiantes
+└─ ~/facesuc-/           ← pieza 2: este sistema (frontend + backend + Postgres)
+          └─ pieza 1 y 2 se comunican por la red Docker `estudiantes-net`
+```
+
+### 10.1 Pieza 1: MySQL de estudiantes
+
+```bash
+mkdir -p ~/facesuc-mysql/dump
+docker network create estudiantes-net
+scp backup.sql usuario@IP_VPS:~/facesuc-mysql/dump/     # desde su máquina
+```
+
+`~/facesuc-mysql/docker-compose.yml`:
+
+```yaml
+name: facesuc-mysql
+services:
+  mysql:
+    image: mysql:8.4                 # misma versión que el MySQL local
+    container_name: facesuc-mysql-estudiantes
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    volumes:
+      - mysql_estudiantes:/var/lib/mysql
+      - ./dump:/docker-entrypoint-initdb.d:ro   # importa el respaldo SOLO en el primer arranque
+    networks: [estudiantes-net]      # sin "ports": no es accesible desde fuera
+volumes:
+  mysql_estudiantes:
+networks:
+  estudiantes-net:
+    external: true
+```
+
+Con `~/facesuc-mysql/.env` que contenga `MYSQL_ROOT_PASSWORD=<clave larga>`:
+
+```bash
+cd ~/facesuc-mysql && docker compose up -d
+docker logs -f facesuc-mysql-estudiantes     # esperar "ready for connections"
+docker exec -it facesuc-mysql-estudiantes mysql -uroot -p -e "SHOW DATABASES;"
+```
+
+Si el respaldo no trae `CREATE DATABASE`, hay que crear la base antes (por ejemplo con
+`MYSQL_DATABASE`). La importación solo corre si el volumen está vacío; para repetirla:
+`docker compose down -v` (solo en esta carpeta) y volver a subir.
+
+### 10.2 Pieza 2: este sistema
+
+1. Subir el código (sin `node_modules/`, `dist/` de frontend/backend ni `.git`) a `~/facesuc-/`.
+   Deben viajar `backend/templates/` (plantilla y logos) y `contracts/dist/`.
+2. En `docker-compose.yml`, unir el backend a la red de la pieza 1 y no exponer la API:
+
+   ```yaml
+   backend:
+     networks: [facesuc-net, estudiantes-net]
+     ports:
+       - "127.0.0.1:4000:4000"
+   # ...
+   networks:
+     facesuc-net: { name: facesuc-net, driver: bridge }
+     estudiantes-net: { external: true }
+   ```
+3. Crear `.env` con valores de producción:
+
+   ```text
+   SUCAI_DB_HOST=facesuc-mysql-estudiantes
+   SUCAI_DB_PORT=3306
+   SUCAI_DB_USER=...            SUCAI_DB_PASSWORD=...        SUCAI_DB_NAME=<base del respaldo>
+   POSTGRES_PASSWORD=<nueva>    JWT_SECRET=<aleatorio ≥ 32>  ROOT_PASSWORD=<nueva>
+   CORS_ORIGIN=https://su-dominio   APP_URL=https://su-dominio   SMTP_PASS=<si hay correo>
+   ```
+4. `docker compose up -d --build`, luego `curl http://127.0.0.1:4000/api/health`.
+5. Publicar: un proxy inverso con HTTPS (Caddy o Nginx + certbot) hacia `localhost:5173`.
+
+### 10.3 Cuidado con los otros sistemas del VPS
+
+- Ejecute `docker compose …` siempre **dentro de la carpeta correcta**.
+- No use `docker system prune` ni `docker volume prune`.
+- `docker compose down -v` borra los volúmenes de *esa* carpeta.
+- Puertos ya tomados en este VPS por otro sistema: `8080` y `3307`. Este sistema usa `5173`
+  y `4000` (solo en `127.0.0.1`).
+
+---
+
+## 11. Seguridad (checklist de producción)
+
+- Cambiar `POSTGRES_PASSWORD`, `JWT_SECRET` y `ROOT_PASSWORD`; los valores por defecto del
+  compose son de desarrollo.
+- `CORS_ORIGIN` con el dominio real, nunca `*`.
+- Servir detrás de HTTPS y no publicar el puerto del backend.
+- Usar en `SUCAI_DB_USER` un usuario MySQL con solo `SELECT`, no `root`.
+- El MySQL de estudiantes no publica puertos.
+- El respaldo `.sql` y los `.env` no van a git.
+- Contraseñas con bcrypt; JWT con vencimiento `JWT_EXPIRES_IN` (8 h por defecto); no se
+  registran contraseñas ni tokens en logs.
+- Tokens de invitación/recuperación/eliminación: de un solo uso, solo se guarda su hash SHA-256.
+- Respaldos periódicos del volumen `facesuc-pgdata`.
+
+---
+
+## 12. Solución de problemas
 
 | Síntoma | Causa / solución |
 |---|---|
-| `No se encontró la plantilla Word` | Ejecute `npm run template:create` o coloque `Notas.docx` en `backend/templates/`. |
-| `No se encontró un estudiante con la cédula...` | Verifique que el CSV esté importado y que la cédula exista. |
-| La tabla de materias no se repite | `{{#materias}}` y `{{/materias}}` deben estar en la **misma fila** de la tabla. |
-| Word muestra las llaves literales | Las etiquetas deben usar exactamente `{{` y `}}`; revise comillas tipográficas. |
-| El navegador no muestra “Guardar como” | Firefox/Safari no soportan File System Access API; se usa descarga directa. |
-| Error de conexión a PostgreSQL | Espere el healthcheck o revise `docker compose logs db`. |
-| El CSV no importa acentos | El script normaliza tildes en encabezados; guarde el archivo en UTF-8. |
-
----
-
-## 14. Verificación realizada
-
-- Backend compilado con TypeScript (`tsc`) sin errores.
-- Frontend compilado con `tsc --noEmit` + `vite build` sin errores.
-- Plantilla `Notas.docx` generada y probada con `docxtemplater`: el bucle de materias
-  expande correctamente las filas y no quedan etiquetas sin reemplazar.
-- Conversión numérica verificada: `18 → Dieciocho`, `20 → Veinte`, `18.33 → 18,33`.
-- `docker-compose.yml` validado como YAML.
-
-> Nota: la verificación de extremo a extremo con PostgreSQL requiere Docker o una
-> instancia local de PostgreSQL; los contenedores están listos para `docker compose up`.
+| El backend sale con "Variables de entorno inválidas" | Falta `SUCAI_DB_USER`, `DATABASE_URL`, o `JWT_SECRET` tiene < 16 caracteres. |
+| `ECONNREFUSED` / "Access denied" hacia SUCAI | Revise `SUCAI_DB_HOST/PORT/USER/PASSWORD`; en VPS, que el backend esté en `estudiantes-net` y el host sea el nombre del contenedor MySQL. |
+| "Table … v_expedientes_alumnos_completo doesn't exist" | El respaldo no se importó o `SUCAI_DB_NAME` es otra base. Verifique con `SHOW DATABASES;`. |
+| El compose falla al montar `contracts/dist` | Falta generar el bundle (§9, "Contrato de la API"). |
+| `No se encontró la plantilla Word` | Coloque `Notas.docx` en `backend/templates/` o ejecute `npm run template:create`. |
+| La tabla de materias no se repite | `{{#materias}}` y `{{/materias}}` deben estar en la misma fila. |
+| Los correos no llegan | Sin `SMTP_PASS` solo se escriben en el log; use una contraseña de aplicación de Gmail (16 caracteres, sin espacios). |
+| No hay "Guardar como" en Firefox/Safari | No soportan File System Access API; se descarga directo. |
+| Error de conexión a Postgres | Espere el healthcheck o revise `docker compose logs db`. |

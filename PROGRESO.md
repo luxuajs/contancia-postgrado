@@ -29,6 +29,7 @@ Estado al 2026-11-11. Una tarea por sesión, en orden.
 - [x] U-20 · document (2026-11-11): `DESIGN.md` y su sidecar refrescados con el sistema resultante.
 - [x] U-21 · optimize (2026-11-11): descartada con medición; sin lentitud (login 117 ms, bundle 66 KB gzip, 40 filas en 275 ms).
 - [x] ROOT sin cédula y sin admin por defecto (2026-11-12): contrato v0.2.0 (`cedula` nula), seed solo del ROOT por correo, admin 12345678 borrado; cabeceras con correo y rol.
+- [x] README actualizado (2026-11-12): SUCAI como MySQL externo, ROOT por correo, rutas reales y guía de despliegue en VPS (§10).
 
 - [x] U-22a · polish de Login (2026-11-11): panel plano, logos legibles, sombras y blur fuera.
 - [x] U-22b · polish de Panel (2026-11-11): contraste de texto y placeholders, foco que no se pierde al buscar, sin avatar.
