@@ -1,0 +1,73 @@
+# Errores tal como los devuelve hoy backend/src/middleware/errorHandler.ts.
+# x-pendiente: migrar a RFC 9457 (application/problem+json) es un cambio incompatible → ADR propio.
+Error:
+  type: object
+  description: Cuerpo de toda respuesta de error del backend actual.
+  required: [error]
+  properties:
+    error:
+      type: string
+      description: Mensaje legible para el usuario.
+    detalles:
+      type: array
+      description: Solo en errores de validación (400 "Datos inválidos"). Uno por campo.
+      items:
+        type: object
+        required: [campo, mensaje]
+        properties:
+          campo:
+            type: string
+            description: Ruta del campo ("general" si el error es del objeto entero).
+          mensaje:
+            type: string
+    codigo:
+      type: string
+      description: Solo en 500 "Error de base de datos"; código de Prisma (p. ej. P2002).
+    detalle:
+      type: string
+      description: Solo fuera de producción; mensaje interno del error.
+      x-pendiente: Filtra detalles internos en entornos no productivos; revisar si debe existir.
+
+respuestas:
+  DatosInvalidos:
+    description: El cuerpo o un parámetro no cumple las reglas (incluye JSON mal formado).
+    content:
+      application/json:
+        schema: { $ref: '#/Error' }
+  NoAutorizado:
+    description: Falta el token Bearer, es inválido o expiró, o las credenciales no son válidas.
+    content:
+      application/json:
+        schema: { $ref: '#/Error' }
+  Prohibido:
+    description: El rol de la sesión no tiene permiso.
+    content:
+      application/json:
+        schema: { $ref: '#/Error' }
+  NoEncontrado:
+    description: El recurso no existe.
+    content:
+      application/json:
+        schema: { $ref: '#/Error' }
+  Conflicto:
+    description: Ya existe un registro con ese valor único (cédula o correo).
+    content:
+      application/json:
+        schema: { $ref: '#/Error' }
+  DemasiadosIntentos:
+    description: Límite de intentos superado (30 cada 15 min por IP en producción).
+    headers:
+      RateLimit-Limit:
+        schema: { type: integer }
+      RateLimit-Remaining:
+        schema: { type: integer }
+      RateLimit-Reset:
+        schema: { type: integer }
+    content:
+      application/json:
+        schema: { $ref: '#/Error' }
+  ErrorInterno:
+    description: Error no controlado o de base de datos.
+    content:
+      application/json:
+        schema: { $ref: '#/Error' }

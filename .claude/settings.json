@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./contracts/dist/**)",
+      "Read(./contracts/generated/**)",
+      "Edit(./contracts/dist/**)",
+      "Edit(./contracts/generated/**)",
+      "Read(./**/node_modules/**)",
+      "Read(./**/package-lock.json)"
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+# Las reglas que se apagan se apagan aquí, con su motivo escrito.
+extends:
+  - recommended
+apis:
+  main:
+    root: ./openapi.yml
+rules:
+  operation-operationId: error
+  operation-summary: error
+  operation-description: warn
+  no-ambiguous-paths: error
+  no-unresolved-refs: error
+  security-defined: error
+  # Proyecto institucional interno, sin licencia pública que declarar.
+  info-license: off
+  # El servidor de desarrollo es localhost a propósito.
+  no-server-example.com: off

@@ -1,0 +1,271 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-11T23:10:59Z",
+  "title": "Design System: Sistema de Constancias FACES-UC",
+  "extensions": {
+    "colorMeta": {
+      "vinotinto-700": {
+        "role": "primary",
+        "displayName": "Vinotinto Institucional",
+        "canonical": "#7b1e3b",
+        "tonalRamp": [
+          "#300a18",
+          "#55182c",
+          "#651a32",
+          "#7b1e3b",
+          "#9d2f57",
+          "#d06f90",
+          "#efc9d5",
+          "#fbf2f5"
+        ]
+      },
+      "papel": {
+        "role": "neutral",
+        "displayName": "Papel",
+        "canonical": "#f7f3f5",
+        "tonalRamp": [
+          "#0f172a",
+          "#334155",
+          "#64748b",
+          "#cbd5e1",
+          "#e2e8f0",
+          "#efe8eb",
+          "#f7f3f5",
+          "#ffffff"
+        ]
+      },
+      "ok": {
+        "role": "status",
+        "displayName": "Esmeralda de estado",
+        "canonical": "#047857",
+        "tonalRamp": [
+          "#022c22",
+          "#065f46",
+          "#047857",
+          "#10b981",
+          "#6ee7b7",
+          "#a7f3d0",
+          "#d1fae5",
+          "#ecfdf5"
+        ]
+      },
+      "error": {
+        "role": "status",
+        "displayName": "Rosa de error",
+        "canonical": "#be123c",
+        "tonalRamp": [
+          "#4c0519",
+          "#881337",
+          "#be123c",
+          "#e11d48",
+          "#fb7185",
+          "#fecdd3",
+          "#ffe4e6",
+          "#fff1f2"
+        ]
+      },
+      "aviso": {
+        "role": "status",
+        "displayName": "Ámbar de aviso",
+        "canonical": "#92400e",
+        "tonalRamp": [
+          "#451a03",
+          "#78350f",
+          "#92400e",
+          "#d97706",
+          "#fbbf24",
+          "#fde68a",
+          "#fef3c7",
+          "#fffbeb"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "Título de página (h1)."
+      },
+      "section": {
+        "displayName": "Section",
+        "purpose": "Título de tarjeta (h2)."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Contenido y celdas."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Etiquetas de campo."
+      },
+      "button": {
+        "displayName": "Button",
+        "purpose": "Texto de botones."
+      },
+      "meta": {
+        "displayName": "Meta",
+        "purpose": "Ayudas, chips y pies; suelo de 12 px."
+      }
+    },
+    "shadows": [
+      {
+        "name": "sm",
+        "value": "0 1px 2px 0 rgb(0 0 0 / 0.05)",
+        "purpose": "Tarjetas, campos y botones en reposo."
+      },
+      {
+        "name": "2xl",
+        "value": "0 25px 50px -12px rgb(0 0 0 / 0.25)",
+        "purpose": "Solo el diálogo."
+      }
+    ],
+    "motion": [
+      {
+        "name": "fade",
+        "value": "0.25s ease-out",
+        "purpose": "Entrada de formulario, resultado y avisos."
+      },
+      {
+        "name": "draw",
+        "value": "0.35s ease-out 0.1s",
+        "purpose": "El check de constancia generada se traza una vez."
+      },
+      {
+        "name": "spin",
+        "value": "1s linear infinite",
+        "purpose": "Indicador de carga; se mantiene con movimiento reducido."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Acción principal; una por pantalla (Imprimir).",
+      "html": "<button class=\"ds-btn-primary\">Imprimir</button>",
+      "css": ".ds-btn-primary{background:#7b1e3b;color:#fff;padding:12px 20px;border:0;border-radius:12px;font:600 14px Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif;box-shadow:0 1px 2px rgb(0 0 0/.05);transition:background .15s}.ds-btn-primary:hover{background:#651a32}.ds-btn-primary:focus-visible{outline:none;box-shadow:0 0 0 4px rgb(157 47 87/.2)}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "PDF, Word, Cancelar.",
+      "html": "<button class=\"ds-btn-secondary\">PDF</button>",
+      "css": ".ds-btn-secondary{background:#fff;color:#334155;padding:10px 16px;border:1px solid #cbd5e1;border-radius:12px;font:600 14px Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif;box-shadow:0 1px 2px rgb(0 0 0/.05)}.ds-btn-secondary:hover{background:#f8fafc}.ds-btn-secondary:focus-visible{outline:none;box-shadow:0 0 0 4px rgb(148 163 184/.1)}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Solo para confirmar una eliminación.",
+      "html": "<button class=\"ds-btn-danger\">Enviar correo de confirmación</button>",
+      "css": ".ds-btn-danger{background:#be123c;color:#fff;padding:10px 16px;border:0;border-radius:12px;font:600 14px Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif;box-shadow:0 1px 2px rgb(0 0 0/.05)}.ds-btn-danger:hover{background:#9f1239}.ds-btn-danger:focus-visible{outline:none;box-shadow:0 0 0 4px rgb(225 29 72/.2)}"
+    },
+    {
+      "name": "Text Button",
+      "kind": "button",
+      "refersTo": "button-text",
+      "description": "Acción de fila (Editar).",
+      "html": "<button class=\"ds-btn-text\">Editar</button>",
+      "css": ".ds-btn-text{background:transparent;color:#651a32;padding:6px 10px;border:0;border-radius:8px;font:600 12px Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif}.ds-btn-text:hover{background:#fbf2f5}.ds-btn-text:focus-visible{outline:none;box-shadow:0 0 0 2px #9d2f57}"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Campo de texto con etiqueta superior.",
+      "html": "<label class=\"ds-label\" for=\"c\">Cédula de identidad</label><input id=\"c\" class=\"ds-input\" placeholder=\"Ej. 12345678\">",
+      "css": ".ds-label{display:block;margin-bottom:6px;font:500 14px Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif;color:#334155}.ds-input{width:100%;box-sizing:border-box;background:#fff;color:#0f172a;padding:12px 16px;border:1px solid #cbd5e1;border-radius:12px;font:16px Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif;box-shadow:0 1px 2px rgb(0 0 0/.05)}.ds-input::placeholder{color:#94a3b8}.ds-input:focus{outline:none;border-color:#9d2f57;box-shadow:0 0 0 4px rgb(157 47 87/.1)}"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Contenedor; nunca anidado.",
+      "html": "<div class=\"ds-card\">Resumen del estudiante</div>",
+      "css": ".ds-card{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:24px;font:14px Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif;color:#0f172a;box-shadow:0 1px 2px rgb(0 0 0/.05)}"
+    },
+    {
+      "name": "Chip de estado",
+      "kind": "chip",
+      "refersTo": "chip-ok",
+      "description": "Aprobada / Activo; el rosa es Reprobada.",
+      "html": "<span class=\"ds-chip ds-chip-ok\">Aprobada</span> <span class=\"ds-chip ds-chip-error\">Reprobada</span> <span class=\"ds-chip ds-chip-oscuro\">ROOT</span>",
+      "css": ".ds-chip{display:inline-flex;padding:4px 10px;border-radius:9999px;font:600 12px Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif;box-shadow:inset 0 0 0 1px var(--r)}.ds-chip-ok{background:#ecfdf5;color:#047857;--r:#a7f3d0}.ds-chip-error{background:#fff1f2;color:#be123c;--r:#fecdd3}.ds-chip-oscuro{background:#1e293b;color:#fff;--r:#1e293b}"
+    },
+    {
+      "name": "Aviso",
+      "kind": "custom",
+      "refersTo": "aviso-error",
+      "description": "Mensaje en bloque: error, ok o info.",
+      "html": "<div class=\"ds-aviso ds-aviso-error\">La cédula, el correo o la contraseña no son correctos.</div>",
+      "css": ".ds-aviso{padding:12px 16px;border:1px solid;border-radius:12px;font:500 14px Inter Variable, Inter, ui-sans-serif, system-ui, sans-serif}.ds-aviso-error{background:#fff1f2;border-color:#fecdd3;color:#be123c}"
+    }
+  ],
+  "narrative": {
+    "northStar": "El Registro Académico",
+    "overview": "Una oficina universitaria bien llevada: papel claro, tinta oscura y un único acento vinotinto. Herramienta de trabajo para personal de postgrado en un PC de oficina: el documento oficial es el protagonista. Marca y estado se separan, el dato se alinea y el movimiento solo comunica.",
+    "keyCharacteristics": [
+      "Un solo acento (vinotinto); los estados tienen sus propios colores.",
+      "Neutros slate sobre papel rosado; sin gradientes ni decoración en el flujo de trabajo.",
+      "Inter Variable en toda la interfaz, en español, con cifras tabulares.",
+      "Logos institucionales (UC y FACES Postgrado) como sello.",
+      "Una constancia equivocada es el costo mayor: las acciones destructivas se separan y se confirman."
+    ],
+    "rules": [
+      {
+        "name": "The One Voice Rule",
+        "body": "El vinotinto marca acciones e identidad; no rellena grandes superficies ni es estado.",
+        "section": "colors"
+      },
+      {
+        "name": "The Status Apart Rule",
+        "body": "Aprobado, reprobado, error, éxito y aviso usan esmeralda, rosa y ámbar, nunca el vinotinto. El color nunca es la única señal.",
+        "section": "colors"
+      },
+      {
+        "name": "The Three Weights Rule",
+        "body": "Solo 500, 600 y 700; font-black no existe en este sistema.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tabular Rule",
+        "body": "Todo número que se compara o se alinea lleva tabular-nums.",
+        "section": "typography"
+      },
+      {
+        "name": "The Quiet Shadow Rule",
+        "body": "La sombra separa capas, nunca decora; sin sombras de color en el flujo de trabajo.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do usar .btn-*, .input, .card, .label, Aviso, Chip y Spinner antes de inventar estilos.",
+      "Do reservar el vinotinto para acción e identidad, y esmeralda, rosa y ámbar para estados.",
+      "Do mantener el foco visible y probar el teclado.",
+      "Do escribir el estado con palabras además de color.",
+      "Do mostrar cédulas y notas solo cuando hacen falta."
+    ],
+    "donts": [
+      "Don't usar gradientes, manchas con blur ni animaciones infinitas, ni en el login.",
+      "Don't usar font-black, texto menor de 12 px ni slate-400 para texto.",
+      "Don't poner Desactivar o Eliminar junto a la acción habitual sin separación ni confirmación.",
+      "Don't rediseñar el documento de la constancia.",
+      "Don't introducir colores literales: añadir un token."
+    ]
+  }
+}

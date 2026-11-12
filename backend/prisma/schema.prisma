@@ -1,0 +1,80 @@
+// Esquema relacional en 3FN para el sistema de constancias de notas (FACES - UC).
+// Ejecutar: npx prisma db push   (o prisma migrate dev en desarrollo)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TipoToken {
+  INVITACION
+  RESET
+  ELIMINACION
+}
+
+enum Rol {
+  ROOT
+  ADMIN
+}
+
+// ---------------------------------------------------------------------------
+// Usuarios internos (root / administradores). Contraseña con hash bcrypt.
+// ---------------------------------------------------------------------------
+model Usuario {
+  id           Int                  @id @default(autoincrement())
+  cedula       String?              @unique @db.VarChar(20)
+  email        String?              @unique @db.VarChar(255)
+  nombre       String               @db.VarChar(255)
+  passwordHash String               @map("password_hash") @db.VarChar(255)
+  rol          Rol                  @default(ADMIN)
+  activo       Boolean              @default(true)
+  creadoEn     DateTime             @default(now()) @map("creado_en") @db.Timestamp(3)
+  consultas    ConsultaEstudiante[]
+  tokens       TokenUsuario[]
+
+  @@map("usuarios")
+}
+
+// ---------------------------------------------------------------------------
+// Registro de consultas de expedientes (auditoría de accesos).
+// Estructura en 3FN: cada fila depende únicamente de su clave primaria,
+// con la cédula consultada (el expediente vive en SUCAI) y FK a usuarios. Inicia vacía y se alimenta
+// automáticamente al buscar estudiantes.
+// ---------------------------------------------------------------------------
+model ConsultaEstudiante {
+  id            Int      @id @default(autoincrement())
+  cedula        String   @db.VarChar(20)
+  usuarioId     Int?     @map("usuario_id")
+  fechaConsulta DateTime @default(now()) @map("fecha_consulta") @db.Timestamp(3)
+  ipAddress     String?  @map("ip_address") @db.VarChar(45)
+  userAgent     String?  @map("user_agent") @db.VarChar(500)
+
+  usuario    Usuario?   @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+
+  @@index([cedula], map: "idx_consulta_cedula")
+  @@index([usuarioId], map: "idx_consulta_usuario")
+  @@index([fechaConsulta], map: "idx_consulta_fecha")
+  @@map("consulta_estudiante")
+}
+
+// ---------------------------------------------------------------------------
+// Tokens de un solo uso para invitación, cambio de contraseña y confirmación
+// de eliminación. Se guarda solo el hash SHA-256; el token viaja por correo.
+// ---------------------------------------------------------------------------
+model TokenUsuario {
+  id        Int       @id @default(autoincrement())
+  usuarioId Int       @map("usuario_id")
+  tipo      TipoToken
+  hash      String    @unique @db.VarChar(64)
+  expiraEn  DateTime  @map("expira_en") @db.Timestamp(3)
+  usadoEn   DateTime? @map("usado_en") @db.Timestamp(3)
+  creadoEn  DateTime  @default(now()) @map("creado_en") @db.Timestamp(3)
+  usuario   Usuario   @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, tipo], map: "idx_token_usuario_tipo")
+  @@map("tokens_usuario")
+}
